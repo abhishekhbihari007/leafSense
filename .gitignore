@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Frontend build
+leaf-doctor-frontend-main/dist/
+
+# Uploads and temp
+uploads/
+*.tmp
+*.temp
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Large model file (optional: use Git LFS or host elsewhere)
+# efficientnet_plantdoc.pth
+
+# Env files with secrets
+.env.local
+.env.*.local

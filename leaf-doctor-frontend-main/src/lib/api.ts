@@ -1,6 +1,6 @@
 // API configuration for the Plant Disease Detection backend
-// Change this to your Flask API URL
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+// Default to same-origin (\"\" -> relative \"/predict\") unless VITE_API_BASE_URL is set.
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 const REQUEST_TIMEOUT_MS = 60_000; // 60 seconds

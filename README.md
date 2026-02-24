@@ -69,6 +69,23 @@ Front end source: `leaf-doctor-frontend-main/src/lib/api.ts` (`predictImage()`).
 | `RATE_LIMIT_WINDOW_SEC` | `60` | Rate limit window in seconds. |
 | `RATE_LIMIT_MAX_IPS` | `10000` | Max number of IPs to track (older entries evicted). |
 
+## Deploying on Render
+
+LeafSense is a **Flask backend + React frontend** app. On Render you must use a **Web Service**, not a Static Site.
+
+- **Service type:** **Web Service** (not Static Site). Static Site does not run a server, so `/predict` and the model would never run.
+- **Build Command:**
+  ```bash
+  pip install -r requirements.txt && cd leaf-doctor-frontend-main && npm install && npm run build
+  ```
+- **Start Command:** `gunicorn app:app`
+- **Publish Directory:** leave empty (Web Services ignore this).
+- **Environment variables (optional):** `FLASK_DEBUG=false`, `CORS_ORIGIN=https://your-frontend-domain.com` if needed.
+
+The build will install Python deps (including torch) and build the React app. At runtime, gunicorn runs Flask, which serves both the API and the built React files from `leaf-doctor-frontend-main/dist`.
+
+---
+
 ## Summary of changes made
 
 - **Backend:** Uses uploaded file (field `image`), saves to a temp file, runs prediction, returns JSON, then deletes the temp file. CORS enabled for dev. Serves React build from `leaf-doctor-frontend-main/dist` at `/` when present; fallback to `templates/index.html` if not built.

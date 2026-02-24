@@ -1,24 +1,30 @@
 import { useCallback, useState, useRef } from "react";
 import { Upload, X, Camera, Image } from "lucide-react";
 
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
 interface ImageUploadProps {
   onFileSelect: (file: File) => void;
+  onError?: (message: string) => void;
   disabled?: boolean;
   previewUrl: string | null;
   onClear: () => void;
 }
 
-export function ImageUpload({ onFileSelect, disabled, previewUrl, onClear }: ImageUploadProps) {
+export function ImageUpload({ onFileSelect, onError, disabled, previewUrl, onClear }: ImageUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(
     (file: File) => {
-      if (file.type.startsWith("image/")) {
-        onFileSelect(file);
+      if (!file.type.startsWith("image/")) return;
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        onError?.("File is too large. Maximum size is 10 MB.");
+        return;
       }
+      onFileSelect(file);
     },
-    [onFileSelect]
+    [onFileSelect, onError]
   );
 
   const handleDrop = useCallback(

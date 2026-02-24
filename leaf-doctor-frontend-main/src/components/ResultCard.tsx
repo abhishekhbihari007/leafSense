@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import type { PredictionResult } from "@/lib/api";
-import { CheckCircle2, AlertTriangle, Leaf, Sparkles, Shield, TrendingUp } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Leaf, Shield, TrendingUp } from "lucide-react";
 
 interface ResultCardProps {
   result: PredictionResult;
@@ -145,49 +145,26 @@ export function ResultCard({ result }: ResultCardProps) {
         </p>
       </motion.div>
 
-      {/* Extra scores */}
-      {(result.nutrient_score != null || result.random_confidence_score != null) && (
-        <div className="grid grid-cols-2 gap-3">
-          {result.nutrient_score != null && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.5 }}
-              whileHover={{ y: -3 }}
-              className="glass-card rounded-xl p-4 space-y-2"
-            >
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-primary/10 p-2">
-                  <Leaf className="h-4 w-4 text-primary" />
-                </div>
-                <span className="text-xs font-semibold font-subtitle text-muted-foreground">Nutrient Score</span>
-              </div>
-              <p className="text-2xl font-heading font-normal text-foreground">
-                {result.nutrient_score}
-                <span className="text-xs font-sans text-muted-foreground ml-0.5">/100</span>
-              </p>
-            </motion.div>
-          )}
-          {result.random_confidence_score != null && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.6 }}
-              whileHover={{ y: -3 }}
-              className="glass-card rounded-xl p-4 space-y-2"
-            >
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-accent/15 p-2">
-                  <Sparkles className="h-4 w-4 text-accent" />
-                </div>
-                <span className="text-xs font-semibold font-subtitle text-muted-foreground">Extra Score</span>
-              </div>
-              <p className="text-2xl font-heading font-normal text-foreground">
-                {result.random_confidence_score}
-              </p>
-            </motion.div>
-          )}
-        </div>
+      {/* Nutrient score (only shown when backend provides it) */}
+      {result.nutrient_score != null && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.5 }}
+          whileHover={{ y: -3 }}
+          className="glass-card rounded-xl p-4 space-y-2"
+        >
+          <div className="flex items-center gap-2">
+            <div className="rounded-lg bg-primary/10 p-2">
+              <Leaf className="h-4 w-4 text-primary" />
+            </div>
+            <span className="text-xs font-semibold font-subtitle text-muted-foreground">Nutrient Score</span>
+          </div>
+          <p className="text-2xl font-heading font-normal text-foreground">
+            {result.nutrient_score}
+            <span className="text-xs font-sans text-muted-foreground ml-0.5">/100</span>
+          </p>
+        </motion.div>
       )}
     </motion.div>
   );

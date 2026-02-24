@@ -6,13 +6,13 @@ const infoItems = [
     icon: Microscope,
     title: "Deep Learning Model",
     description:
-      "Powered by a convolutional neural network trained on thousands of labeled plant leaf samples across multiple species and disease types.",
+      "Powered by EfficientNet trained on labeled plant leaf images to classify leaves as healthy or showing disease indicators.",
   },
   {
     icon: Database,
-    title: "Extensive Dataset",
+    title: "Curated Dataset",
     description:
-      "Our model is trained on a curated dataset covering 50+ diseases including blight, rust, mildew, leaf spot, and nutrient deficiencies.",
+      "Trained on plant leaf imagery so the model can reliably distinguish healthy leaves from those with disease signs.",
   },
   {
     icon: CloudLightning,

@@ -18,8 +18,8 @@ const features = [
   },
   {
     icon: Leaf,
-    title: "Multi-Disease",
-    description: "Covers 50+ plant diseases across multiple crop species and growing conditions",
+    title: "Healthy vs Diseased",
+    description: "Detects whether your leaf is healthy or shows signs of disease, trained on diverse plant species",
     iconBg: "bg-success/15",
     iconColor: "text-success",
   },

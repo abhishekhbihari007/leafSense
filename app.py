@@ -1,29 +1,106 @@
 import os
+import time
+import logging
 import torch
-import torch.nn as nn
 from flask import Flask, request, jsonify, send_from_directory
 from torchvision import transforms
 from PIL import Image
 from timm import create_model
-import random
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# CORS: allow React dev server (e.g. port 8080) to call this API
+# Config from env (optional overrides for production)
+def _env_int(key: str, default: int) -> int:
+    v = os.environ.get(key)
+    return int(v) if v is not None and v.isdigit() else default
+
+def _env_float(key: str, default: float) -> float:
+    v = os.environ.get(key)
+    try:
+        return float(v) if v is not None else default
+    except ValueError:
+        return default
+
+# Limit upload size (default 10 MB) to prevent DoS
+_max_content_mb = _env_int("MAX_CONTENT_MB", 10)
+app.config["MAX_CONTENT_LENGTH"] = _max_content_mb * 1024 * 1024
+
+# Allowed image extensions for /predict
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
+
+def _allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[-1].lower() in ALLOWED_EXTENSIONS
+
+# Magic bytes for allowed image types (first few bytes of file)
+_IMAGE_SIGNATURES = [
+    (b"\xff\xd8\xff", "JPEG"),
+    (b"\x89PNG\r\n\x1a\n", "PNG"),
+    (b"GIF87a", "GIF"),
+    (b"GIF89a", "GIF"),
+    (b"RIFF", "WEBP"),  # WebP: RIFF....WEBP
+]
+
+# Rate limit: max requests per window per IP (in-memory; per process). Env: RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SEC.
+_RATE_LIMIT_REQUESTS = _env_int("RATE_LIMIT_REQUESTS", 30)
+_RATE_LIMIT_WINDOW_SEC = _env_int("RATE_LIMIT_WINDOW_SEC", 60)
+_RATE_LIMIT_MAX_IPS = _env_int("RATE_LIMIT_MAX_IPS", 10000)
+_rate_limit_store = {}  # ip -> list of request timestamps
+
+def _rate_limit_exceeded(ip: str) -> bool:
+    now = time.time()
+    cutoff = now - _RATE_LIMIT_WINDOW_SEC
+    if ip not in _rate_limit_store:
+        _rate_limit_store[ip] = []
+    times = [t for t in _rate_limit_store[ip] if t > cutoff]
+    times.append(now)
+    _rate_limit_store[ip] = times
+    # Prune IPs with no recent requests and cap total IPs
+    to_del = [k for k, v in _rate_limit_store.items() if not v or (k != ip and max(v) < cutoff)]
+    for k in to_del:
+        del _rate_limit_store[k]
+    while len(_rate_limit_store) > _RATE_LIMIT_MAX_IPS:
+        oldest_key = min(_rate_limit_store, key=lambda k: max(_rate_limit_store[k]) if _rate_limit_store[k] else 0)
+        del _rate_limit_store[oldest_key]
+    return len(_rate_limit_store[ip]) > _RATE_LIMIT_REQUESTS
+
+def _is_valid_image_file(path: str) -> bool:
+    """Check file content by magic bytes; avoids accepting renamed non-image files."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+    except OSError:
+        return False
+    if len(header) < 6:
+        return False
+    for sig, _ in _IMAGE_SIGNATURES:
+        if sig == b"RIFF":
+            if header.startswith(b"RIFF") and len(header) >= 12 and header[8:12] == b"WEBP":
+                return True
+        elif header.startswith(sig):
+            return True
+    return False
+
+# CORS: set CORS_ORIGIN env to your front-end origin in production (e.g. https://yourdomain.com); default * for dev
+CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "*")
+
 @app.after_request
 def after_request(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
 # Paths and Parameters
-MODEL_PATH = "efficientnet_plantdoc.pth"
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(_BASE_DIR, "efficientnet_plantdoc.pth")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Minimum confidence from disease model to treat as a valid plant prediction (reject unclear / non-plant)
-MIN_PLANT_CONFIDENCE = 0.50
+# Minimum confidence from disease model (env: MIN_PLANT_CONFIDENCE, default 0.50)
+MIN_PLANT_CONFIDENCE = _env_float("MIN_PLANT_CONFIDENCE", 0.50)
 
 # WHITELIST: ImageNet top‑5 must contain at least one of these to be treated as plant/leaf (otherwise we reject)
 # Using top‑5 so real leaves that get top‑1 as "leaf beetle" or "cabbage butterfly" still pass
@@ -37,28 +114,19 @@ PLANT_ACCEPT_KEYWORDS = [
 ]
 # Number of ImageNet top predictions to check for plant keywords (any match = allow)
 PLANT_CHECK_TOP_K = 5
-# Fallback blacklist (used only if whitelist check is skipped): reject these
-NON_PLANT_KEYWORDS = [
-    "bench", "desk", "table", "chair", "couch", "bed", "sofa", "furniture",
-    "computer", "phone", "keyboard", "monitor", "laptop", "television", "printer",
-    "car", "vehicle", "boat", "airplane", "bicycle", "train", "ship", "bus", "minivan",
-    "church", "castle", "palace", "building", "house", "home", "barn", "monastery",
-    "groom", "diver", "ballplayer", "person", "dog", "cat", "bird", "fish", "reptile",
-    "camera", "bookcase", "book", "telephone", "wardrobe", "refrigerator", "cabinet",
-    "shelf", "mirror", "pillow", "towel", "barber", "rocking", "folding", "ashcan",
-    "tower", "bridge", "window", "door", "envelope", "menu", "sign", "notebook",
-    "wallet", "purse", "card", "document", "license", "certificate", "mask", "binder",
-    "photo", "portrait", "credit", "id ", "digilocker", "academic", "paper", "letter",
-]
 
 # Define the disease model
 NUM_CLASSES = 2  # Adjust based on your dataset (e.g., 2 for Diseased and Healthy)
 model = create_model('efficientnet_b0', pretrained=False, num_classes=NUM_CLASSES)
 model = model.to(DEVICE)
 
-# Load the trained model
+# Load the trained model (weights_only=True for security when loading state dicts)
 try:
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    try:
+        state = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)
+    except TypeError:
+        state = torch.load(MODEL_PATH, map_location=DEVICE)
+    model.load_state_dict(state)
     model.eval()
     print("Model loaded successfully.")
 except FileNotFoundError:
@@ -75,22 +143,21 @@ imagenet_class_names = []
 def _load_imagenet_classes():
     """Load ImageNet class names (1000 classes). Tries local file first, then URL."""
     # 1) Local file next to app.py (optional)
-    base = os.path.dirname(os.path.abspath(__file__))
-    local_path = os.path.join(base, "imagenet_classes.txt")
+    local_path = os.path.join(_BASE_DIR, "imagenet_classes.txt")
     if os.path.isfile(local_path):
         try:
             with open(local_path, "r", encoding="utf-8") as f:
                 return [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Plant checker: could not load local imagenet_classes.txt: {e}")
     # 2) Fetch from PyTorch hub
     try:
         import urllib.request
         url = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
         with urllib.request.urlopen(url, timeout=5) as resp:
             return [line.decode("utf-8").strip() for line in resp.readlines()]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Plant checker: could not fetch ImageNet classes from URL: {e}")
     return []
 
 def _init_plant_checker():
@@ -140,17 +207,9 @@ transform = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-# Nutrient scoring function (mock implementation)
-def get_nutrient_score(image_tensor):
-    """
-    Mock implementation to generate a nutrient score.
-    Replace with your logic for nutrient deficiency prediction.
-    """
-    return torch.randint(70, 100, (1,)).item()
-
-# Confidence score function (random between 1 to 10)
-def get_confidence_score():
-    return round(random.uniform(1, 10), 2)
+# Placeholder nutrient score until a real model is added (not used for decisions)
+def get_nutrient_score(_image_tensor):
+    return None  # Frontend can hide this; replace with real logic when available
 
 # User-facing message when image is not a plant/leaf
 NOT_PLANT_ERROR = (
@@ -161,6 +220,7 @@ LOW_CONFIDENCE_ERROR = (
     "Unable to recognize a plant leaf in this image. "
     "Please upload a clear, close-up photo of a plant leaf."
 )
+GENERIC_PREDICTION_ERROR = "Prediction failed. Please try again or use a different image."
 
 # Prediction function
 def predict(image_path):
@@ -221,14 +281,13 @@ def predict(image_path):
             "recommendation": recommendation,
             "confidence_tier": confidence_tier,
             "nutrient_score": nutrient_score,
-            "random_confidence_score": get_confidence_score()
         }
     except Exception as e:
-        return {"error": str(e)}
+        logger.exception("Prediction failed")
+        return {"error": GENERIC_PREDICTION_ERROR}
 
 # Front end: React app (leaf-doctor-frontend-main). Build with: cd leaf-doctor-frontend-main && npm run build
-# Then this server serves the built UI from dist/ and the API from /predict.
-FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaf-doctor-frontend-main", "dist")
+FRONTEND_DIST = os.path.join(_BASE_DIR, "leaf-doctor-frontend-main", "dist")
 
 def _serve_frontend(path=""):
     if path and os.path.exists(os.path.join(FRONTEND_DIST, path)):
@@ -243,16 +302,30 @@ def index():
     from flask import render_template
     return render_template('index.html')
 
+@app.errorhandler(413)
+def request_entity_too_large(_e):
+    return jsonify({"error": f"File too large. Maximum size is {_max_content_mb} MB."}), 413
+
+@app.route("/health")
+def health():
+    """Health check for load balancers and deployments. Returns 200 when app and model are ready."""
+    return jsonify({"status": "ok", "model_loaded": model is not None}), 200
+
 @app.route('/predict', methods=['POST'])
 def predict_route():
+    client_ip = request.remote_addr or "unknown"
+    if _rate_limit_exceeded(client_ip):
+        return jsonify({"error": "Too many requests. Please try again later."}), 429
     # Front end sends the file with key "image" (see leaf-doctor-frontend-main/src/lib/api.ts)
     if 'image' not in request.files:
         return jsonify({"error": "No image provided"}), 400
     file = request.files['image']
     if file.filename == '' or not file.filename:
         return jsonify({"error": "No image selected"}), 400
+    if not _allowed_file(file.filename):
+        return jsonify({"error": "Invalid file type. Allowed: JPG, PNG, WEBP, GIF."}), 400
     try:
-        uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+        uploads_dir = os.path.join(_BASE_DIR, "uploads")
         os.makedirs(uploads_dir, exist_ok=True)
         # Save with a unique name to avoid collisions
         import tempfile
@@ -260,6 +333,8 @@ def predict_route():
         fd, image_path = tempfile.mkstemp(suffix=ext or ".jpg", dir=uploads_dir)
         try:
             file.save(image_path)
+            if not _is_valid_image_file(image_path):
+                return jsonify({"error": "File is not a valid image. Allowed: JPG, PNG, GIF, WEBP."}), 400
             result = predict(image_path)
             if "error" in result:
                 return jsonify(result), 400
@@ -272,17 +347,21 @@ def predict_route():
             except OSError:
                 pass
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.exception("Predict route failed")
+        return jsonify({"error": GENERIC_PREDICTION_ERROR}), 500
 
 # SPA: serve React app for any other path (e.g. /assets/..., or client-side routes)
 @app.route('/<path:path>')
 def serve_spa(path):
     if not os.path.isdir(FRONTEND_DIST):
-        return {"error": "Front end not built. Run: cd leaf-doctor-frontend-main && npm run build"}, 404
+        return jsonify({"error": "Front end not built. Run: cd leaf-doctor-frontend-main && npm run build"}), 404
     return _serve_frontend(path)
 
 if __name__ == '__main__':
+    debug = os.environ.get("FLASK_DEBUG", "false").lower() in ("1", "true", "yes")
+    if debug:
+        print("Warning: Running with debug=True. Set FLASK_DEBUG=false in production.")
     try:
-        app.run(debug=True)
+        app.run(debug=debug)
     except Exception as e:
         print(f"An error occurred while starting the server: {e}")

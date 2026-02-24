@@ -19,14 +19,20 @@ const Index = () => {
 
   const handleFileSelect = useCallback((selectedFile: File) => {
     setFile(selectedFile);
-    setPreviewUrl(URL.createObjectURL(selectedFile));
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(selectedFile);
+    });
     setResult(null);
     setError(null);
   }, []);
 
   const handleClear = useCallback(() => {
     setFile(null);
-    setPreviewUrl(null);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setResult(null);
     setError(null);
   }, []);
@@ -39,8 +45,8 @@ const Index = () => {
     try {
       const prediction = await predictImage(file);
       setResult(prediction);
-    } catch (err: any) {
-      setError(err.message || "Something went wrong. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -118,7 +124,7 @@ const Index = () => {
               ))}
             </div>
             <p className="text-sm font-subtitle text-primary-foreground/70">
-              <span className="font-semibold text-primary-foreground/90">10,000+</span> plants scanned successfully
+              Upload a leaf photo for instant health analysis
             </p>
           </motion.div>
         </div>
@@ -168,6 +174,7 @@ const Index = () => {
           <section aria-label="Image upload">
             <ImageUpload
               onFileSelect={handleFileSelect}
+              onError={setError}
               disabled={loading}
               previewUrl={previewUrl}
               onClear={handleClear}

@@ -13,10 +13,12 @@ Plant disease detection app: **Flask backend** (PyTorch model) + **React front e
 ## API contract (front end ↔ backend)
 
 - **Endpoint:** `POST /predict`
-- **Request:** `multipart/form-data` with field **`image`** (file).
+- **Request:** `multipart/form-data` with field **`image`** (file). Max size **10 MB** (configurable via `MAX_CONTENT_MB`). Allowed types: JPG, PNG, GIF, WEBP.
 - **Response (JSON):**
-  - Success: `{ "class": "Healthy" | "Diseased", "confidence": number, "nutrient_score": number, "random_confidence_score": number }`
+  - Success: `{ "class": "Healthy" | "Diseased", "confidence": number, "message", "recommendation", "confidence_tier", "nutrient_score" }`
   - Error: `{ "error": "message" }` with HTTP 4xx/5xx.
+- **Health check:** `GET /health` returns `{ "status": "ok", "model_loaded": true }` with 200 when the app and model are ready (for load balancers / deployments).
+- **Rate limit:** 30 requests per 60 seconds per IP (configurable via env). Exceeding returns **429** and `{ "error": "Too many requests. Please try again later." }`.
 
 Front end source: `leaf-doctor-frontend-main/src/lib/api.ts` (`predictImage()`).
 
@@ -52,8 +54,20 @@ Front end source: `leaf-doctor-frontend-main/src/lib/api.ts` (`predictImage()`).
 
 ## Backend requirements
 
-- Python 3 with: `flask`, `torch`, `torchvision`, `PIL` (Pillow), `timm`
+- Python 3 with: `flask`, `torch`, `torchvision`, `PIL` (Pillow), `timm` (see `requirements.txt`)
 - Model file: `efficientnet_plantdoc.pth` in the project root (same folder as `app.py`)
+
+## Environment variables (backend)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FLASK_DEBUG` | `false` | Set to `true`/`1` for debug mode (do not use in production). |
+| `CORS_ORIGIN` | `*` | Allowed CORS origin; set to your front-end URL in production (e.g. `https://yourdomain.com`). |
+| `MAX_CONTENT_MB` | `10` | Max upload size in MB for `/predict`. |
+| `MIN_PLANT_CONFIDENCE` | `0.5` | Minimum confidence (0–1) to accept a prediction; below this returns a low-confidence error. |
+| `RATE_LIMIT_REQUESTS` | `30` | Max requests per IP per window. |
+| `RATE_LIMIT_WINDOW_SEC` | `60` | Rate limit window in seconds. |
+| `RATE_LIMIT_MAX_IPS` | `10000` | Max number of IPs to track (older entries evicted). |
 
 ## Summary of changes made
 

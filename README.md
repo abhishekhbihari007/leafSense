@@ -81,6 +81,7 @@ LeafSense is a **Flask backend + React frontend** app. On Render you must use a 
 - **Start Command:** `gunicorn app:app`
 - **Publish Directory:** leave empty (Web Services ignore this).
 - **Environment variables (optional):** `FLASK_DEBUG=false`, `CORS_ORIGIN=https://your-frontend-domain.com` if needed.
+- If you host a **separate static frontend**, configure `VITE_API_BASE_URL` in that frontend to point at this Web Service URL.
 
 The build will install Python deps (including torch) and build the React app. At runtime, gunicorn runs Flask, which serves both the API and the built React files from `leaf-doctor-frontend-main/dist`.
 

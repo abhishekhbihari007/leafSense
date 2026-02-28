@@ -359,9 +359,11 @@ def serve_spa(path):
 
 if __name__ == '__main__':
     debug = os.environ.get("FLASK_DEBUG", "false").lower() in ("1", "true", "yes")
+    port = int(os.environ.get("PORT", 5000))
+    host = os.environ.get("HOST", "0.0.0.0")
     if debug:
         print("Warning: Running with debug=True. Set FLASK_DEBUG=false in production.")
     try:
-        app.run(debug=debug)
+        app.run(host=host, port=port, debug=debug)
     except Exception as e:
         print(f"An error occurred while starting the server: {e}")

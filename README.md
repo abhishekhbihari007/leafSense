@@ -74,16 +74,32 @@ Front end source: `leaf-doctor-frontend-main/src/lib/api.ts` (`predictImage()`).
 LeafSense is a **Flask backend + React frontend** app. On Render you must use a **Web Service**, not a Static Site.
 
 - **Service type:** **Web Service** (not Static Site). Static Site does not run a server, so `/predict` and the model would never run.
+- **Root Directory:** leave default (repo root).
 - **Build Command:**
   ```bash
-  pip install -r requirements.txt && cd leaf-doctor-frontend-main && npm install && npm run build
+  pip install -r requirements.txt && cd leaf-doctor-frontend-main && npm install && npm run build && cd ..
   ```
-- **Start Command:** `gunicorn app:app`
+- **Start Command (required for Render to route traffic):**
+  ```bash
+  gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 app:app
+  ```
+  The server must bind to `0.0.0.0` and use the `PORT` environment variable that Render sets.
 - **Publish Directory:** leave empty (Web Services ignore this).
+- **Python version:** The repo includes `runtime.txt` (e.g. `python-3.10.12`). Render uses it automatically.
+- **Model file:** The app expects `efficientnet_plantdoc.pth` in the project root at startup. Either commit this file to the repo (or use Git LFS), or add a build step that downloads it from your own URL. Without it, the service will fail to start.
 - **Environment variables (optional):** `FLASK_DEBUG=false`, `CORS_ORIGIN=https://your-frontend-domain.com` if needed.
-- If you host a **separate static frontend**, configure `VITE_API_BASE_URL` in that frontend to point at this Web Service URL.
 
-The build will install Python deps (including torch) and build the React app. At runtime, gunicorn runs Flask, which serves both the API and the built React files from `leaf-doctor-frontend-main/dist`.
+You can also use **Blueprint**: connect the repo and use the included `render.yaml` so Render picks up build and start commands automatically.
+
+The build installs Python deps (including torch) and builds the React app. At runtime, gunicorn runs Flask, which serves both the API and the built React files from `leaf-doctor-frontend-main/dist`.
+
+## Netlify (frontend only)
+
+Netlify is for **static sites** and **serverless functions**. It does **not** run a long-lived Flask server with PyTorch. To use Netlify:
+
+- Deploy **only the frontend** (build `leaf-doctor-frontend-main` with `npm run build`, publish the `dist/` folder).
+- Set **Environment variable** `VITE_API_BASE_URL` to your backend URL (e.g. your Render Web Service URL like `https://leafsense.onrender.com`).
+- The backend must run elsewhere (e.g. Render, Railway, or Fly.io).
 
 ---
 

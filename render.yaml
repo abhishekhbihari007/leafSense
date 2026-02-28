@@ -15,3 +15,6 @@ services:
     envVars:
       - key: FLASK_DEBUG
         value: "false"
+      # Saves ~400MB RAM on 512MB free tier (skips second EfficientNet for non-plant filter)
+      - key: DISABLE_PLANT_CHECKER
+        value: "1"

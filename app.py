@@ -136,9 +136,10 @@ except Exception as e:
     print(f"Error loading the model: {e}")
     exit(1)
 
-# Plant-vs-non-plant checker: pretrained ImageNet model + reject list
+# Plant-vs-non-plant checker: pretrained ImageNet model + reject list (optional; set DISABLE_PLANT_CHECKER=1 to save RAM on small instances)
 plant_checker_model = None
 imagenet_class_names = []
+DISABLE_PLANT_CHECKER = os.environ.get("DISABLE_PLANT_CHECKER", "").strip().lower() in ("1", "true", "yes")
 
 def _load_imagenet_classes():
     """Load ImageNet class names (1000 classes). Tries local file first, then URL."""
@@ -162,6 +163,9 @@ def _load_imagenet_classes():
 
 def _init_plant_checker():
     global plant_checker_model, imagenet_class_names
+    if DISABLE_PLANT_CHECKER:
+        print("Plant checker disabled (DISABLE_PLANT_CHECKER=1). Using confidence-only validation.")
+        return
     try:
         plant_checker_model = create_model("efficientnet_b0", pretrained=True, num_classes=1000)
         plant_checker_model = plant_checker_model.to(DEVICE)

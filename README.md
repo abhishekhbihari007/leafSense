@@ -68,6 +68,7 @@ Front end source: `leaf-doctor-frontend-main/src/lib/api.ts` (`predictImage()`).
 | `RATE_LIMIT_REQUESTS` | `30` | Max requests per IP per window. |
 | `RATE_LIMIT_WINDOW_SEC` | `60` | Rate limit window in seconds. |
 | `RATE_LIMIT_MAX_IPS` | `10000` | Max number of IPs to track (older entries evicted). |
+| `DISABLE_PLANT_CHECKER` | (unset) | Set to `1` or `true` to skip loading the ImageNet plant-checker model (saves ~400 MB RAM; use on 512 MB free tier). |
 
 ## Deploying on Render
 
@@ -87,7 +88,10 @@ LeafSense is a **Flask backend + React frontend** app. On Render you must use a 
 - **Publish Directory:** leave empty (Web Services ignore this).
 - **Python version:** The repo includes `runtime.txt` (e.g. `python-3.10.12`). Render uses it automatically.
 - **Model file:** The app expects `efficientnet_plantdoc.pth` in the project root at startup. Either commit this file to the repo (or use Git LFS), or add a build step that downloads it from your own URL. Without it, the service will fail to start.
-- **Environment variables (optional):** `FLASK_DEBUG=false`, `CORS_ORIGIN=https://your-frontend-domain.com` if needed.
+- **Environment variables (optional):**
+  - `FLASK_DEBUG=false` — recommended for production.
+  - `CORS_ORIGIN=https://your-frontend-domain.com` — if the frontend is on another domain.
+  - **`DISABLE_PLANT_CHECKER=1`** — **set this on Render free tier (512 MB RAM).** It skips loading the second EfficientNet (ImageNet) model used to reject non-leaf images, saving ~400 MB RAM. Without it, the service may hit "Out of memory" and fail. On a paid plan with more RAM you can leave it unset to keep the non-plant filter.
 
 You can also use **Blueprint**: connect the repo and use the included `render.yaml` so Render picks up build and start commands automatically.
 

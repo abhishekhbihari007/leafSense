@@ -18,3 +18,6 @@ services:
       # Saves ~400MB RAM on 512MB free tier (skips second EfficientNet for non-plant filter)
       - key: DISABLE_PLANT_CHECKER
         value: "1"
+      # Load disease model on first /predict instead of at startup (reduces startup RAM so service can bind to port)
+      - key: LAZY_LOAD_MODEL
+        value: "1"

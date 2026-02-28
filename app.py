@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import threading
 import torch
 from flask import Flask, request, jsonify, send_from_directory
 from torchvision import transforms
@@ -115,26 +116,63 @@ PLANT_ACCEPT_KEYWORDS = [
 # Number of ImageNet top predictions to check for plant keywords (any match = allow)
 PLANT_CHECK_TOP_K = 5
 
-# Define the disease model
+# Disease model: load at startup or lazily on first /predict (set LAZY_LOAD_MODEL=1 to save RAM on 512MB)
 NUM_CLASSES = 2  # Adjust based on your dataset (e.g., 2 for Diseased and Healthy)
-model = create_model('efficientnet_b0', pretrained=False, num_classes=NUM_CLASSES)
-model = model.to(DEVICE)
+LAZY_LOAD_MODEL = os.environ.get("LAZY_LOAD_MODEL", "").strip().lower() in ("1", "true", "yes")
+_disease_model = None
+_disease_model_lock = threading.Lock()
+_disease_model_load_failed = False
 
-# Load the trained model (weights_only=True for security when loading state dicts)
-try:
-    try:
-        state = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)
-    except TypeError:
-        state = torch.load(MODEL_PATH, map_location=DEVICE)
-    model.load_state_dict(state)
-    model.eval()
-    print("Model loaded successfully.")
-except FileNotFoundError:
-    print(f"Error: Model file '{MODEL_PATH}' not found.")
-    exit(1)
-except Exception as e:
-    print(f"Error loading the model: {e}")
-    exit(1)
+
+def _load_disease_model():
+    """Load disease model once; used for lazy loading or at startup."""
+    global _disease_model, _disease_model_load_failed
+    with _disease_model_lock:
+        if _disease_model is not None:
+            return _disease_model
+        if _disease_model_load_failed:
+            return None
+        try:
+            m = create_model("efficientnet_b0", pretrained=False, num_classes=NUM_CLASSES)
+            m = m.to(DEVICE)
+            try:
+                state = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)
+            except TypeError:
+                state = torch.load(MODEL_PATH, map_location=DEVICE)
+            m.load_state_dict(state)
+            m.eval()
+            _disease_model = m
+            print("Model loaded successfully.")
+            return _disease_model
+        except FileNotFoundError:
+            logger.error(f"Model file '{MODEL_PATH}' not found.")
+            _disease_model_load_failed = True
+            return None
+        except Exception as e:
+            logger.exception(f"Error loading the model: {e}")
+            _disease_model_load_failed = True
+            return None
+
+
+if not LAZY_LOAD_MODEL:
+    model = _load_disease_model()
+    if model is None:
+        exit(1)
+else:
+    model = None  # will be set on first get_model() call
+    print("LAZY_LOAD_MODEL=1: disease model will load on first /predict request.")
+
+
+def get_model():
+    """Return the disease model; load lazily if LAZY_LOAD_MODEL is set."""
+    global model
+    if model is not None:
+        return model
+    if LAZY_LOAD_MODEL:
+        loaded = _load_disease_model()
+        if loaded is not None:
+            model = loaded
+    return model
 
 # Plant-vs-non-plant checker: pretrained ImageNet model + reject list (optional; set DISABLE_PLANT_CHECKER=1 to save RAM on small instances)
 plant_checker_model = None
@@ -228,6 +266,9 @@ GENERIC_PREDICTION_ERROR = "Prediction failed. Please try again or use a differe
 
 # Prediction function
 def predict(image_path):
+    m = get_model()
+    if m is None:
+        return {"error": "Model not available. Please try again in a moment or contact the administrator."}
     try:
         # Load and preprocess the image
         image = Image.open(image_path).convert("RGB")
@@ -240,9 +281,9 @@ def predict(image_path):
         # Test-time augmentation (TTA): original + horizontal flip, then average softmax
         # Improves accuracy and confidence, especially for diseased leaves
         with torch.no_grad():
-            logits_1 = model(image_tensor)
+            logits_1 = m(image_tensor)
             image_flipped = torch.flip(image_tensor, dims=[-1])  # horizontal flip
-            logits_2 = model(image_flipped)
+            logits_2 = m(image_flipped)
             # Average logits then softmax (more stable than averaging softmax)
             avg_logits = (logits_1 + logits_2) / 2.0
             confidence_scores = torch.softmax(avg_logits, dim=1)
@@ -312,8 +353,8 @@ def request_entity_too_large(_e):
 
 @app.route("/health")
 def health():
-    """Health check for load balancers and deployments. Returns 200 when app and model are ready."""
-    return jsonify({"status": "ok", "model_loaded": model is not None}), 200
+    """Health check for load balancers and deployments. Returns 200 when app is up; model_loaded true once model is ready."""
+    return jsonify({"status": "ok", "model_loaded": get_model() is not None}), 200
 
 @app.route('/predict', methods=['POST'])
 def predict_route():
@@ -341,6 +382,8 @@ def predict_route():
                 return jsonify({"error": "File is not a valid image. Allowed: JPG, PNG, GIF, WEBP."}), 400
             result = predict(image_path)
             if "error" in result:
+                if "not available" in result.get("error", ""):
+                    return jsonify(result), 503
                 return jsonify(result), 400
             return jsonify(result)
         finally:

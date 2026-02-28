@@ -69,6 +69,7 @@ Front end source: `leaf-doctor-frontend-main/src/lib/api.ts` (`predictImage()`).
 | `RATE_LIMIT_WINDOW_SEC` | `60` | Rate limit window in seconds. |
 | `RATE_LIMIT_MAX_IPS` | `10000` | Max number of IPs to track (older entries evicted). |
 | `DISABLE_PLANT_CHECKER` | (unset) | Set to `1` or `true` to skip loading the ImageNet plant-checker model (saves ~400 MB RAM; use on 512 MB free tier). |
+| `LAZY_LOAD_MODEL` | (unset) | Set to `1` or `true` to load the disease model on first `/predict` instead of at startup (reduces startup RAM; use with 512 MB if still OOM). |
 
 ## Deploying on Render
 
@@ -91,7 +92,8 @@ LeafSense is a **Flask backend + React frontend** app. On Render you must use a 
 - **Environment variables (optional):**
   - `FLASK_DEBUG=false` — recommended for production.
   - `CORS_ORIGIN=https://your-frontend-domain.com` — if the frontend is on another domain.
-  - **`DISABLE_PLANT_CHECKER=1`** — **set this on Render free tier (512 MB RAM).** It skips loading the second EfficientNet (ImageNet) model used to reject non-leaf images, saving ~400 MB RAM. Without it, the service may hit "Out of memory" and fail. On a paid plan with more RAM you can leave it unset to keep the non-plant filter.
+  - **`DISABLE_PLANT_CHECKER=1`** — **set this on Render free tier (512 MB RAM).** It skips loading the second EfficientNet (ImageNet) model used to reject non-leaf images, saving ~400 MB RAM.
+  - **`LAZY_LOAD_MODEL=1`** — **set this on 512 MB if you still get Out of memory at startup.** The disease model then loads on the first `/predict` request instead of at startup, so the app can bind to the port and serve `/health` and the UI. The first prediction may be slow or may still hit OOM; if it does, use a plan with **at least 1 GB RAM** (e.g. Render Starter) for reliable inference.
 
 You can also use **Blueprint**: connect the repo and use the included `render.yaml` so Render picks up build and start commands automatically.
 
